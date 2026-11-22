@@ -1,20 +1,21 @@
 import type { Workspace } from "../shared/types";
 import type { Command } from "../shared/commands";
 import { isTerminal, emptyArchive, logAction } from "../shared/initial";
-import { blankBoard, generateBoard } from "../features/terrain";
+import { blankBoard } from "../features/terrain";
+import { createExpedition, mayAct } from "../features/exploration";
 import {
-  createExpedition,
-  mayAct,
-  revealCells,
+  cancelPlan,
+  confirmTurn,
   cycleMark,
-  chordCells,
-} from "../features/exploration";
-import { inspectCell, activateShield } from "../features/tools";
+  planIntent,
+} from "../features/exploration/model/turn";
+import { activateShield } from "../features/tools";
 import { settle } from "../features/chronicle";
+
 export function initialGame(): Workspace {
   return {
     doc: {
-      version: 1,
+      version: 2,
       expedition: createExpedition(
         blankBoard("scout", "RUIN-025"),
         crypto.randomUUID(),
@@ -25,6 +26,7 @@ export function initialGame(): Workspace {
     notice: "",
   };
 }
+
 export function gameReducer(state: Workspace, c: Command): Workspace {
   let e = state.doc.expedition;
   let archive = state.doc.archive;
@@ -41,54 +43,61 @@ export function gameReducer(state: Workspace, c: Command): Workspace {
             Date.now(),
           ),
         },
-        notice: "新的石板地图已准备好，第一步由你决定。",
+        notice: "新的石板地图已准备好，守卫按公开路线巡逻；确认意图才会推进回合。",
       };
     }
-    case "mode":
-      if (mayAct(e)) e = { ...e, mode: c.mode };
+    case "plan":
+      // 仅登记意图：不推进回合、不结算。
+      if (e.status === "ready" && c.kind !== "explore") {
+        return { ...state, notice: "首次行动必须先探索一块石板。" };
+      }
+      e = planIntent(e, c.kind, c.cell ?? null);
       break;
-    case "pause":
-      if (e.status === "active") e = { ...e, paused: c.paused ?? !e.paused };
+    case "cancelPlan":
+      e = cancelPlan(e);
       break;
-    case "tick":
-      if (e.status === "active" && !e.paused)
-        e = { ...e, elapsed: e.elapsed + 1 };
+    case "selectTool":
+      // 只切换点选模式，不推进；有待确认意图时禁止切换。
+      if (!e.pending && mayAct(e)) e = { ...e, tool: c.tool };
+      break;
+    case "confirm":
+      // 幂等：没有待确认意图时重复点击不会多走一回合或多结算。
+      e = confirmTurn(e);
+      break;
+    case "mark":
+      e = cycleMark(e, c.id);
       break;
     case "shield":
       e = activateShield(e);
       break;
+    case "inspect":
+      // 仅展开/收起信息面板，状态变化不推进回合、不结算发现。
+      return {
+        ...state,
+        doc: {
+          ...state.doc,
+          expedition: { ...state.doc.expedition, inspectOpen: c.open },
+        },
+      };
+    case "pause":
+      if (e.status === "active" || e.status === "ready")
+        e = { ...e, paused: c.paused ?? !e.paused };
+      break;
+    case "tick":
+      if ((e.status === "active" || e.status === "ready") && !e.paused)
+        e = { ...e, elapsed: e.elapsed + 1 };
+      break;
     case "extract":
-      if (e.status === "active" && !e.paused)
+      if ((e.status === "active" || e.status === "ready") && !e.paused)
         e = logAction(
-          { ...e, status: "extracted", mode: "reveal" },
+          { ...e, status: "extracted", pending: null },
           "extract",
           null,
-          "携带本次发现平安撤离，探险已归档。",
+          `第 ${e.turn} 回合携带发现撤离，探险已归档。`,
         );
       break;
-    case "chord":
-      e = chordCells(e, c.id);
-      break;
-    case "cell": {
-      const cell = e.board.cells[c.id];
-      if (!mayAct(e) || !cell) break;
-      if (c.mark || e.mode === "mark") {
-        e = cycleMark(e, c.id);
-        break;
-      }
-      if (cell.revealed || cell.mark === "flag") break;
-      if (e.mode === "probe" || e.mode === "flare") {
-        const result = inspectCell(e, c.id, e.mode);
-        e = result.reveal.length
-          ? revealCells(result.expedition, result.reveal)
-          : result.expedition;
-        break;
-      }
-      if (!e.board.generated)
-        e = { ...e, status: "active", board: generateBoard(e.board, c.id) };
-      e = revealCells(e, [c.id]);
-      break;
-    }
+    default:
+      return state;
   }
   if (e === state.doc.expedition) return state;
   if (isTerminal(e.status)) archive = settle(archive, e, Date.now());

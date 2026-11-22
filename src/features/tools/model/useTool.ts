@@ -1,42 +1,16 @@
 import type { Expedition } from "../../../shared/types";
 import { logAction } from "../../../shared/initial";
-import { coordinate } from "../../../shared/geometry";
-import { canTarget, hasTool } from "../lib/targets";
-export function inspectCell(
+
+export function hasTool(
   e: Expedition,
-  id: number,
-  tool: "probe" | "flare",
-): { expedition: Expedition; reveal: number[] } {
-  if (!canTarget(e, id) || !hasTool(e, tool))
-    return { expedition: e, reveal: [] };
-  const c = e.board.cells[id];
-  if (c.intel !== "unknown" && (tool === "probe" || c.intel === "danger"))
-    return { expedition: e, reveal: [] };
-  const updated: Expedition = {
-    ...e,
-    mode: "reveal",
-    selected: id,
-    used: e.used + 1,
-    tools: { ...e.tools, [tool]: e.tools[tool] - 1 },
-    board: {
-      ...e.board,
-      cells: e.board.cells.map((v) =>
-        v.id === id ? { ...v, intel: c.mine ? "danger" : "safe" } : v,
-      ),
-    },
-  };
-  return {
-    expedition: logAction(
-      updated,
-      tool,
-      id,
-      `${coordinate(id, e.board.width)}：${tool === "probe" ? "探针确认" : "火把照亮"}${c.mine ? "危险" : "安全"}。`,
-    ),
-    reveal: tool === "flare" && !c.mine ? [id] : [],
-  };
+  tool: "probe" | "flare" | "shield",
+): boolean {
+  return e.tools[tool] > 0 && !e.paused && (e.status === "active" || e.status === "ready");
 }
+
+/** 守护符石即时激活：不构成回合行动，不推进回合。 */
 export function activateShield(e: Expedition): Expedition {
-  if (!hasTool(e, "shield") || e.shield) return e;
+  if (!hasTool(e, "shield") || e.shield || e.pending) return e;
   return logAction(
     {
       ...e,
@@ -46,6 +20,6 @@ export function activateShield(e: Expedition): Expedition {
     },
     "shield",
     null,
-    "守护符石已激活，将抵挡下一次陷阱伤害。",
+    "守护符石已激活（第 " + e.turn + " 回合），将抵挡下一次陷阱或守卫伤害。",
   );
 }

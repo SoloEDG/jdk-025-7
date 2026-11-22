@@ -2,7 +2,10 @@ import { Backpack, ScanLine, Flame, ShieldCheck, Check } from "lucide-react";
 import type { Expedition } from "../../../shared/types";
 import type { Command } from "../../../shared/commands";
 import { toolCatalog } from "../model/catalog";
-import { hasTool } from "../lib/targets";
+import { hasTool } from "../model/useTool";
+
+const ICONS = [ScanLine, Flame, ShieldCheck];
+
 export function ToolPanel({
   expedition: e,
   send,
@@ -19,22 +22,23 @@ export function ToolPanel({
       </div>
       <div className="tool-list">
         {toolCatalog.map((t, i) => {
-          const Icon = [ScanLine, Flame, ShieldCheck][i];
-          const selected = t.id === "shield" ? e.shield : e.mode === t.id;
+          const Icon = ICONS[i];
+          const isShield = t.id === "shield";
+          const selected = isShield ? e.shield : e.tool === t.id;
+          const disabled = isShield
+            ? !hasTool(e, "shield") || e.shield || !!e.pending
+            : !hasTool(e, t.id) || !!e.pending;
           return (
             <button
               key={t.id}
               title={t.description}
-              disabled={!hasTool(e, t.id) || (t.id === "shield" && e.shield)}
+              disabled={disabled}
               aria-pressed={selected}
               className={"tool-card " + (selected ? "selected" : "")}
               onClick={() =>
-                t.id === "shield"
+                isShield
                   ? send({ type: "shield" })
-                  : send({
-                      type: "mode",
-                      mode: e.mode === t.id ? "reveal" : t.id,
-                    })
+                  : send({ type: "selectTool", tool: t.id })
               }
             >
               <span className={"tool-icon tool-" + t.id}>
@@ -45,7 +49,7 @@ export function ToolPanel({
                 <small>{t.subtitle}</small>
               </span>
               <span className="tool-stock">
-                {selected && t.id === "shield" ? (
+                {isShield && e.shield ? (
                   <Check size={14} />
                 ) : (
                   <>
@@ -58,9 +62,9 @@ export function ToolPanel({
         })}
       </div>
       <p className="tool-note">
-        道具只在成功使用时扣除。
+        探针与火把是回合行动：点选石板登记意图，确认后才推进。
         <br />
-        第一步探索后，才能使用补给。
+        所有结论与旗标都会标注回合，刷新后可继续推断。
       </p>
     </section>
   );

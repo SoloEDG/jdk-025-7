@@ -1,4 +1,5 @@
 import type { Expedition, Report } from "../../../shared/types";
+
 export function expeditionReport(e: Expedition, now: number): Report {
   const safe = e.board.cells.filter((c) => c.revealed && !c.mine);
   const relics = safe.flatMap((c) => (c.relic ? [c.relic] : []));
@@ -15,10 +16,12 @@ export function expeditionReport(e: Expedition, now: number): Report {
       safe.length * 10 +
         relics.length * 50 -
         e.mistakes * 30 -
-        e.used * 15 +
+        e.used * 15 -
+        e.turn * 2 +
         (e.status === "won" ? 200 : 0),
     ),
     seconds: e.elapsed,
+    turns: e.turn,
     used: e.used,
     mistakes: e.mistakes,
     endedAt: now,

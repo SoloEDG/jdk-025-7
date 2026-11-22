@@ -7,7 +7,6 @@ import {
   Plus,
   Check,
   ArrowUpRight,
-  Diamond,
   LogOut,
   X,
   Save,
@@ -17,26 +16,40 @@ import { isTerminal } from "../shared/initial";
 import {
   RegionPanel,
   BoardView,
-  publicBoard,
-  region,
 } from "../features/terrain";
-import { ActionBar, ProgressStrip } from "../features/exploration";
-import { analyze, InferencePanel } from "../features/inference";
+import {
+  ActionBar,
+  ProgressStrip,
+  IntentBar,
+  SequencePanel,
+} from "../features/exploration";
+import {
+  analyzeSituations,
+  InferencePanel,
+  PatrolPanel,
+  buildEvidence,
+  boardForInference,
+} from "../features/inference";
 import { ToolPanel } from "../features/tools";
 import { ChroniclePanel, ResultPanel } from "../features/chronicle";
 import { useGame } from "./useGame";
 import { GuideDialog } from "./ui/GuideDialog";
 import { LaunchDialog } from "./ui/LaunchDialog";
+
 export function App() {
   const { state, send, saved } = useGame();
   const e = state.doc.expedition;
   const [help, setHelp] = useState(false);
   const [launch, setLaunch] = useState<Difficulty | null>(null);
   const [extract, setExtract] = useState(false);
-  const [hints, setHints] = useState(false);
-  const analysis = useMemo(() => analyze(publicBoard(e.board)), [e.board]);
-  const r = region(e.board.difficulty);
   const report = state.doc.archive.reports.find((v) => v.id === e.id);
+
+  // 推断完全由公开证据驱动：不含 mine / phase 等暗处答案。
+  const analysis = useMemo(() => {
+    if (e.status === "ready") return null;
+    return analyzeSituations(boardForInference(e), buildEvidence(e));
+  }, [e]);
+
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -46,9 +59,9 @@ export function App() {
           </span>
           <span>
             <strong>
-              遗迹探勘<span>RUINFIELD</span>
+              遗迹守卫<span>RUIN WATCH</span>
             </strong>
-            <small>在未知之中，寻找文明的回声。</small>
+            <small>公开的路线，未知的相位。</small>
           </span>
         </a>
         <nav aria-label="主导航">
@@ -81,12 +94,12 @@ export function App() {
           <div>
             <span className="eyebrow">
               <span />
-              ARCHAEOLOGICAL EXPEDITION / VOL. 025
+              TURN-BASED RUIN PATROL / VOL. 025
             </span>
             <h1>
-              未知之下，皆是故事<span>。</span>
+              先推断，再落子<span>。</span>
             </h1>
-            <p>循着数字的线索，揭开一座失落文明。</p>
+            <p>守卫循公开路线巡逻，只有确认行动才会推进回合。</p>
           </div>
           <button
             className="new-expedition"
@@ -100,20 +113,17 @@ export function App() {
         <div className="workspace">
           <aside className="left-column">
             <RegionPanel expedition={e} onNew={setLaunch} />
+            <SequencePanel />
             <div className="left-bottom">
               <span className="eyebrow">EXPEDITION SEED</span>
               <code>{e.board.seed}</code>
-              <span className="seed-tip">同一种子，同一段未知。</span>
+              <span className="seed-tip">同一种子，同一巡逻真相。</span>
             </div>
           </aside>
           <div className="center-column" id="map">
             <ProgressStrip expedition={e} />
-            <BoardView
-              expedition={e}
-              analysis={analysis}
-              showHints={hints}
-              send={send}
-            />
+            <BoardView expedition={e} analysis={analysis} send={send} />
+            <IntentBar expedition={e} send={send} />
             <ActionBar
               expedition={e}
               send={send}
@@ -125,38 +135,18 @@ export function App() {
                 onNew={() => setLaunch(e.board.difficulty)}
               />
             )}
-            <div className="map-note">
-              <Diamond size={14} />
-              <p>
-                {e.mode === "probe"
-                  ? "探针已就绪，点击未探索且无旗标的石板，确认一格信息。"
-                  : e.mode === "flare"
-                    ? "火把已就绪，点击未探索石板；安全则揭开，危险则仅确认。"
-                    : r.description}
-                <span>
-                  {e.mode === "reveal"
-                    ? "谨慎的每一步，都会让故事更完整。"
-                    : e.mode === "mark"
-                      ? "旗标是你的判断，疑问保留未知；并不证明真实危险。"
-                      : "使用后自动回到探索模式，取消可点击「探索」。"}
-                </span>
-              </p>
-              <span className="note-mark">✦</span>
-            </div>
             <div className="save-strip">
               <Save size={12} />
-              <span>自动保存地图、道具与发现 · 随时回来继续</span>
+              <span>自动保存回合、带回合证据与巡逻推断 · 刷新后继续推理</span>
               <small>LOCAL FIELD JOURNAL</small>
             </div>
           </div>
           <aside className="right-column">
+            <PatrolPanel expedition={e} analysis={analysis} />
             <InferencePanel
-              analysis={analysis}
               expedition={e}
-              showHints={hints}
-              onHints={() => setHints(!hints)}
+              analysis={analysis}
               onLocate={(id) => {
-                setHints(true);
                 document.getElementById("tile-" + id)?.focus();
                 document
                   .getElementById("tile-" + id)
@@ -174,7 +164,7 @@ export function App() {
             RUINFIELD EXPLORER’S SOCIETY <i /> EST. 2026
           </span>
           <span>
-            让好奇指引方向，让理性守护每一步。
+            所有情形都安全，才算安全。
             <Compass size={13} />
           </span>
         </footer>
@@ -184,7 +174,7 @@ export function App() {
           {state.notice}
         </div>
       )}
-      {help && <GuideDialog onClose={() => setHelp(false)} />}{" "}
+      {help && <GuideDialog onClose={() => setHelp(false)} />}
       {launch && (
         <LaunchDialog
           key={launch}
@@ -194,7 +184,6 @@ export function App() {
           onConfirm={(difficulty, seed) => {
             send({ type: "new", difficulty, seed });
             setLaunch(null);
-            setHints(false);
           }}
         />
       )}
@@ -217,7 +206,7 @@ export function App() {
             <LogOut size={28} />
             <h2 id="extract-title">带着发现，平安归营。</h2>
             <p>
-              撤离会结束本次探险，将已探索区域与文物计入档案。尚未探索的区域不会获得积分。
+              撤离会结束本次探险并归档；待确认意图会被取消，尚未探索的区域不计分。
             </p>
             <div className="dialog-actions">
               <button

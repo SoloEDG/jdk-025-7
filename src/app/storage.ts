@@ -5,14 +5,25 @@ import type {
   Board,
   Report,
 } from "../shared/types";
-import { neighbors } from "../shared/geometry";
 import { region } from "../features/terrain";
+import { validateGuards } from "../features/terrain";
 import { initialGame } from "./gameReducer";
-const key = "ruinfield-jdk025-v1";
+
+const key = "ruinfield-jdk025-v2";
 const obj = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
 const int = (v: unknown, min = 0) =>
   typeof v === "number" && Number.isInteger(v) && v >= min;
+const nullableInt = (v: unknown) => v === null || int(v);
+
+function validZones(board: Board): boolean {
+  const r = region(board.difficulty);
+  if (board.zones.length !== r.zoneCols * r.zoneRows) return false;
+  const all = board.zones.flatMap((z) => z.cells).sort((a, b) => a - b);
+  if (all.length !== board.width * board.height) return false;
+  return all.every((id, i) => id === i);
+}
+
 function validBoard(v: unknown): v is Board {
   if (
     !obj(v) ||
@@ -20,60 +31,78 @@ function validBoard(v: unknown): v is Board {
     typeof v.seed !== "string" ||
     v.seed.length > 40 ||
     typeof v.generated !== "boolean" ||
-    !Array.isArray(v.cells)
+    !Array.isArray(v.cells) ||
+    !Array.isArray(v.zones) ||
+    !Array.isArray(v.guards)
   )
     return false;
   const r = region(v.difficulty as Board["difficulty"]);
+  const b = v as unknown as Board;
   if (
-    v.width !== r.width ||
-    v.height !== r.height ||
-    v.mines !== r.mines ||
-    v.cells.length !== r.width * r.height
+    b.width !== r.width ||
+    b.height !== r.height ||
+    b.mines !== r.mines ||
+    b.guardCount !== r.guardCount ||
+    b.cells.length !== r.width * r.height ||
+    b.guards.length !== r.guardCount
   )
     return false;
-  const cells = v.cells;
   if (
-    !cells.every(
+    !b.cells.every(
       (c, i) =>
         obj(c) &&
         c.id === i &&
         typeof c.mine === "boolean" &&
-        int(c.adjacent) &&
-        Number(c.adjacent) <= 8 &&
         typeof c.revealed === "boolean" &&
-        ["none", "flag", "question"].includes(String(c.mark)) &&
-        ["unknown", "safe", "danger"].includes(String(c.intel)) &&
-        ["stone", "moss", "water"].includes(String(c.terrain)) &&
+        ["none", "flag", "question"].includes(c.mark) &&
+        ["unknown", "safe", "danger"].includes(c.intel) &&
+        nullableInt(c.intelTurn) &&
+        nullableInt(c.flagTurn) &&
+        nullableInt(c.observedAt) &&
+        nullableInt(c.observedNumber) &&
+        nullableInt(c.seenGuardTurn) &&
+        int(c.trapAdjacent) &&
+        c.trapAdjacent <= 8 &&
+        ["stone", "moss", "water"].includes(c.terrain) &&
         (c.relic === null ||
-          ["sun", "vessel", "tablet"].includes(String(c.relic))) &&
+          ["sun", "vessel", "tablet"].includes(c.relic)) &&
+        !(c.mine && c.relic) &&
         (!c.revealed || c.mark === "none") &&
-        !(c.mine && c.relic),
+        (c.observedAt === null || (c.revealed && !c.mine)) &&
+        (c.observedNumber === null || int(c.observedNumber, 0)),
     )
   )
     return false;
-  const b = v as unknown as Board;
+  // 公开巡逻结构必须满足闭合、不重复、守卫间不共格。
+  const specTracks = r.tracks.map((t) => t.map(([x, y]) => y * r.width + x));
+  if (
+    !b.guards.every(
+      (g, i) =>
+        int(g.id) &&
+        g.id === i &&
+        Array.isArray(g.track) &&
+        g.track.length === specTracks[i].length &&
+        g.track.every((cell, k) => cell === specTracks[i][k]) &&
+        int(g.phase) &&
+        g.phase < g.track.length,
+    )
+  )
+    return false;
+  if (!validateGuards(b)) return false;
+  if (!validZones(b)) return false;
   if (!b.generated)
     return b.cells.every(
       (c) =>
         !c.mine &&
         !c.revealed &&
-        c.adjacent === 0 &&
+        c.trapAdjacent === 0 &&
         c.intel === "unknown" &&
-        c.relic === null,
+        c.relic === null &&
+        c.observedAt === null,
     );
-  if (
-    b.cells.filter((c) => c.mine).length !== b.mines ||
-    b.cells.filter((c) => c.relic).length !== 6
-  )
-    return false;
-  return b.cells.every(
-    (c) =>
-      c.adjacent ===
-        neighbors(c.id, b.width, b.height).filter((id) => b.cells[id].mine)
-          .length &&
-      (c.intel === "unknown" || (c.intel === "danger") === c.mine),
-  );
+  return b.cells.filter((c) => c.mine).length === b.mines;
 }
+
 function validExpedition(v: unknown): v is Expedition {
   if (
     !obj(v) ||
@@ -82,67 +111,95 @@ function validExpedition(v: unknown): v is Expedition {
     !["ready", "active", "won", "lost", "extracted"].includes(
       String(v.status),
     ) ||
-    !["reveal", "mark", "probe", "flare"].includes(String(v.mode)) ||
     !int(v.lives) ||
     Number(v.lives) > 3 ||
-    typeof v.shield !== "boolean" ||
-    typeof v.paused !== "boolean" ||
+    typeof v.shield === "boolean" ||
+    typeof v.paused === "boolean" ||
+    !int(v.turn) ||
     !int(v.used) ||
     !int(v.mistakes) ||
     !int(v.elapsed) ||
     !int(v.nextAction, 1) ||
     !int(v.startedAt) ||
-    !(
-      v.selected === null ||
-      (int(v.selected) && Number(v.selected) < v.board.cells.length)
-    ) ||
     !obj(v.tools) ||
     !Array.isArray(v.actions) ||
-    v.actions.length > 80
-  )
-    return false;
-  const board = v.board;
-  const t = v.tools;
-  if (
-    !int(t.probe) ||
-    Number(t.probe) > 2 ||
-    !int(t.flare) ||
-    Number(t.flare) > 1 ||
-    !int(t.shield) ||
-    Number(t.shield) > 1
-  )
-    return false;
-  if (
-    !v.actions.every(
-      (a) =>
-        obj(a) &&
-        int(a.id, 1) &&
-        Number(a.id) < Number(v.nextAction) &&
-        [
-          "reveal",
-          "mark",
-          "probe",
-          "flare",
-          "hit",
-          "shield",
-          "extract",
-        ].includes(String(a.kind)) &&
-        (a.cell === null ||
-          (int(a.cell) && Number(a.cell) < board.cells.length)) &&
-        typeof a.message === "string" &&
-        int(a.second),
-    )
+    v.actions.length > 100 ||
+    !Array.isArray(v.footsteps) ||
+    !Array.isArray(v.sightings) ||
+    !Array.isArray(v.slates) ||
+    !Array.isArray(v.guardPositions) ||
+    ["explore", "probe", "flare"].includes(String(v.tool)) === false ||
+    typeof v.inspectOpen !== "boolean" ||
+    (v.pending !== null && !obj(v.pending))
   )
     return false;
   const e = v as unknown as Expedition;
-  const safe = e.board.cells.filter((c) => c.revealed && !c.mine).length;
+  const t = e.tools;
+  if (
+    !int(t.probe) ||
+    t.probe > 2 ||
+    !int(t.flare) ||
+    t.flare > 1 ||
+    !int(t.shield) ||
+    t.shield > 1
+  )
+    return false;
+  const board = e.board;
+  const actionKinds = [
+    "explore",
+    "wait",
+    "probe",
+    "flare",
+    "shield",
+    "mark",
+    "hit",
+    "extract",
+  ];
+  if (
+    !e.actions.every(
+      (a) =>
+        obj(a) &&
+        int(a.id, 1) &&
+        a.id < e.nextAction &&
+        actionKinds.includes(a.kind) &&
+        (a.cell === null || (int(a.cell) && a.cell < board.cells.length)) &&
+        typeof a.message === "string" &&
+        int(a.turn),
+    )
+  )
+    return false;
+  const cellOk = (id: unknown) => int(id) && Number(id) < board.cells.length;
+  if (
+    !e.footsteps.every(
+      (f) => int(f.turn) && int(f.zone) && f.zone < board.zones.length && int(f.count),
+    ) ||
+    !e.sightings.every(
+      (s) => int(s.turn) && cellOk(s.cell) && typeof s.present === "boolean",
+    ) ||
+    !e.slates.every(
+      (s) => int(s.turn) && cellOk(s.cell) && int(s.number) && s.number <= 8,
+    ) ||
+    e.guardPositions.length !== board.guards.length ||
+    !e.guardPositions.every(cellOk)
+  )
+    return false;
+  if (e.pending) {
+    const p = e.pending;
+    if (
+      !["explore", "wait", "probe", "flare"].includes(p.kind) ||
+      !int(p.turn) ||
+      (p.kind === "wait"
+        ? p.cell !== null
+        : p.cell === null || !cellOk(p.cell))
+    )
+      return false;
+  }
   return (
     (e.status === "ready") === !e.board.generated &&
-    (e.status !== "won" || safe === e.board.cells.length - e.board.mines) &&
-    (e.status !== "lost" || e.lives === 0) &&
-    e.used === 4 - e.tools.probe - e.tools.flare - e.tools.shield
+    (e.status !== "lost" || e.lives === 0)
   );
 }
+
 function validReport(v: unknown): v is Report {
   return (
     obj(v) &&
@@ -155,6 +212,7 @@ function validReport(v: unknown): v is Report {
       "totalSafe",
       "score",
       "seconds",
+      "turns",
       "used",
       "mistakes",
       "endedAt",
@@ -164,6 +222,7 @@ function validReport(v: unknown): v is Report {
     v.relics.every((r) => ["sun", "vessel", "tablet"].includes(String(r)))
   );
 }
+
 function validArchive(v: unknown): v is Archive {
   return (
     obj(v) &&
@@ -178,6 +237,7 @@ function validArchive(v: unknown): v is Archive {
     int(v.totalScore)
   );
 }
+
 export function loadGame() {
   try {
     const raw = localStorage.getItem(key);
@@ -185,17 +245,18 @@ export function loadGame() {
     const v: unknown = JSON.parse(raw);
     if (
       obj(v) &&
-      v.version === 1 &&
+      v.version === 2 &&
       validExpedition(v.expedition) &&
       validArchive(v.archive)
     )
       return {
         doc: v as unknown as GameDocument,
-        notice: "已恢复上次探险，地图、道具与推断信息保持原样。",
+        notice:
+          "已恢复上次探险：回合、带回合的证据与联合推断记录足以继续推理。",
       };
     return {
       ...initialGame(),
-      notice: "存档格式或地图校验未通过，已保留原存档并开启临时探险。",
+      notice: "存档校验未通过（可能来自旧版本），已开启新探险且不覆盖原存档。",
       recovery: true,
     };
   } catch {
@@ -206,6 +267,7 @@ export function loadGame() {
     };
   }
 }
+
 export function saveGame(doc: GameDocument) {
   try {
     localStorage.setItem(key, JSON.stringify(doc));

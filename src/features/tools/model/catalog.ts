@@ -2,23 +2,24 @@ export const toolCatalog = [
   {
     id: "probe" as const,
     name: "勘探探针",
-    subtitle: "确认一格是否危险",
+    subtitle: "确认一格固定陷阱",
     key: "I",
-    description: "选择一块未揭开的石板，获得可靠的安全或危险信息，不直接探索。",
+    description:
+      "作为一个回合行动登记，确认后才推进。只判定固定陷阱，不揭开石板，不结算守卫；结论标注回合。",
   },
   {
     id: "flare" as const,
     name: "照明火把",
-    subtitle: "揭开一格安全石板",
+    subtitle: "安全则揭开",
     key: "II",
     description:
-      "选中未揭开的石板。若安全则揭开，若危险则确认危险，不触发陷阱。",
+      "作为一个回合行动登记，确认后才推进。若该格无固定陷阱则揭开并展开，若是陷阱则仅确认、不触发。",
   },
   {
     id: "shield" as const,
     name: "守护符石",
-    subtitle: "抵挡一次陷阱伤害",
+    subtitle: "抵挡一次伤害",
     key: "III",
-    description: "激活后持续保护，直到抵挡一次陷阱；不会改变地图数字。",
+    description: "即时激活，不推进回合；可挡一次陷阱或守卫的移动遭遇。",
   },
 ];

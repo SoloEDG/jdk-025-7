@@ -1,30 +1,44 @@
 import { useRef, useState } from "react";
-import { Pause, Play, MapPin, Maximize2, Flag, Gem } from "lucide-react";
-import type { Analysis, Expedition } from "../../../shared/types";
+import { Pause, Play, MapPin, Maximize2, Flag, Gem, Footprints } from "lucide-react";
+import type { Expedition } from "../../../shared/types";
 import type { Command } from "../../../shared/commands";
 import { isTerminal } from "../../../shared/initial";
+import type { SituationAnalysis } from "../../inference";
 import { region } from "../model/regions";
-import { BoardCell } from "./BoardCell";
+import { BoardCell, type CellRisk } from "./BoardCell";
+
 export function BoardView({
   expedition: e,
   analysis,
-  showHints,
   send,
 }: {
   expedition: Expedition;
-  analysis: Analysis;
-  showHints: boolean;
+  analysis: SituationAnalysis | null;
   send: (c: Command) => void;
 }) {
-  const [focus, setFocus] = useState(44);
+  const [focus, setFocus] = useState(0);
   const wrap = useRef<HTMLDivElement>(null);
   const r = region(e.board.difficulty);
-  const hints = new Map(
-    showHints
-      ? [...analysis.safe, ...analysis.danger].map((h) => [h.cell, h.kind])
-      : [],
+  const terminal = isTerminal(e.status);
+  const totalWeight = analysis
+    ? analysis.situations.reduce((s, x) => s + x.merged, 0)
+    : 0;
+
+  const riskOf = (id: number): CellRisk | null => {
+    if (!analysis || totalWeight === 0) return null;
+    const gh = analysis.guardHits.get(id) ?? 0;
+    const tr = analysis.trapRisk.get(id) ?? 0;
+    return {
+      guardRatio: gh / totalWeight,
+      trapRatio: tr / totalWeight,
+      safe: analysis.safeCells.has(id),
+    };
+  };
+
+  const guardTruth = new Set(
+    terminal ? e.guardPositions : [],
   );
-  const activeFocus = Math.min(focus, e.board.cells.length - 1);
+
   const navigate = (id: number, key: string) => {
     const x = id % e.board.width,
       y = Math.floor(id / e.board.width);
@@ -49,6 +63,7 @@ export function BoardView({
       ?.querySelector<HTMLButtonElement>(`[data-cell="${next}"]`)
       ?.focus();
   };
+
   return (
     <section className="board-panel">
       <div className="board-heading">
@@ -60,18 +75,22 @@ export function BoardView({
           </h2>
         </div>
         <div className="board-actions">
+          <span className="turn-chip">
+            <Footprints size={13} />
+            回合 {e.turn}
+          </span>
           <span>
             <i />{" "}
             {e.status === "ready"
               ? "待出发"
               : e.status === "active"
-                ? "探险进行中"
+                ? "巡逻进行中"
                 : "探险已结束"}
           </span>
           <button
             className="icon-button"
             aria-label={e.paused ? "继续探险" : "暂停探险"}
-            disabled={e.status !== "active"}
+            disabled={terminal}
             onClick={() => send({ type: "pause" })}
           >
             {e.paused ? <Play size={16} /> : <Pause size={16} />}
@@ -82,7 +101,7 @@ export function BoardView({
             onClick={() =>
               wrap.current
                 ?.querySelector<HTMLButtonElement>(
-                  `[data-cell="${activeFocus}"]`,
+                  `[data-cell="${Math.min(focus, e.board.cells.length - 1)}"]`,
                 )
                 ?.focus()
             }
@@ -124,18 +143,19 @@ export function BoardView({
                 key={c.id}
                 cell={c}
                 width={e.board.width}
-                terminal={isTerminal(e.status)}
-                hint={hints.get(c.id)}
-                selected={c.id === activeFocus}
+                terminal={terminal}
+                guardHere={guardTruth.has(c.id)}
+                risk={riskOf(c.id)}
+                selected={c.id === Math.min(focus, e.board.cells.length - 1)}
                 onOpen={() => {
                   setFocus(c.id);
-                  send({ type: "cell", id: c.id });
+                  if (c.revealed || c.mark === "flag" || e.pending || terminal) return;
+                  send({ type: "plan", kind: e.tool, cell: c.id });
                 }}
                 onMark={() => {
                   setFocus(c.id);
-                  send({ type: "cell", id: c.id, mark: true });
+                  send({ type: "mark", id: c.id });
                 }}
-                onChord={() => send({ type: "chord", id: c.id })}
                 onNavigate={(key) => navigate(c.id, key)}
               />
             ))}
@@ -143,18 +163,19 @@ export function BoardView({
         </div>
         <div className="map-coordinate">
           <MapPin size={10} />
-          北纬 24° 16′ · 东经 102° 32′<span>比例 1 : 100</span>
+          脚步只报区域数量，不报具体格<span>数字冻结于观测回合</span>
         </div>
         {e.status === "ready" && (
           <div className="first-step">
-            点击任意石板，开始探险<span>首步及周围八格始终安全</span>
+            点击石板登记探索意图，再确认推进第一回合
+            <span>首步及周围八格保证无陷阱、无守卫</span>
           </div>
         )}
         {e.paused && (
           <div className="pause-overlay">
             <Pause size={34} />
             <h3>遗迹会等你回来</h3>
-            <p>时间已暂停，地图和补给均已保存。</p>
+            <p>回合已暂停，地图、证据与巡逻推断均已保存。</p>
             <button className="primary" onClick={() => send({ type: "pause" })}>
               <Play size={14} />
               继续探险
@@ -164,22 +185,26 @@ export function BoardView({
       </div>
       <div className="board-legend">
         <span>
-          <i className="legend-hidden" />
-          未知石板
+          <i className="legend-risk-safe" />
+          全情形安全
         </span>
         <span>
-          <i className="legend-open" />
-          安全区域
+          <i className="legend-risk-guard" />
+          守卫风险
+        </span>
+        <span>
+          <i className="legend-risk-trap" />
+          陷阱风险
         </span>
         <span>
           <Flag size={12} />
-          危险标记
+          旗标（非证据）
         </span>
         <span>
           <Gem size={12} />
-          遗迹文物
+          文物
         </span>
-        <small>右键标记 · 双击数字快速展开</small>
+        <small>右键插旗 · 单击登记探索意图，确认后才走回合</small>
       </div>
     </section>
   );

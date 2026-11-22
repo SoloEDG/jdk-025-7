@@ -76,10 +76,7 @@ export function ChroniclePanel({
               .slice(0, 20)
               .map((a) => (
                 <div key={a.id}>
-                  <small>
-                    {String(Math.floor(a.second / 60)).padStart(2, "0")}:
-                    {String(a.second % 60).padStart(2, "0")}
-                  </small>
+                  <small>T{String(a.turn).padStart(2, "0")}</small>
                   <span>{a.message}</span>
                 </div>
               ))

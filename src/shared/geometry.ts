@@ -11,6 +11,22 @@ export function neighbors(id: number, width: number, height: number): number[] {
     }
   return ids;
 }
+
 export function coordinate(id: number, width: number) {
   return `${String.fromCharCode(65 + (id % width))}${Math.floor(id / width) + 1}`;
+}
+
+export function manhattan(a: number, b: number, width: number) {
+  const ax = a % width,
+    ay = Math.floor(a / width),
+    bx = b % width,
+    by = Math.floor(b / width);
+  return Math.abs(ax - bx) + Math.abs(ay - by);
+}
+
+export function cellZone(
+  id: number,
+  zones: { id: number; cells: number[] }[],
+): number {
+  return zones.find((z) => z.cells.includes(id))?.id ?? -1;
 }

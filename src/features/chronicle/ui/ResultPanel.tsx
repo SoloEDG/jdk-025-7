@@ -42,7 +42,10 @@ export function ResultPanel({
         </span>
         <span>
           <TriangleAlert size={13} />
-          触发陷阱 {report.mistakes}
+          失误 {report.mistakes}
+        </span>
+        <span>
+          回合 {report.turns}
         </span>
       </p>
       <button className="primary" onClick={onNew}>

@@ -1,3 +1,4 @@
 export { ToolPanel } from "./ui/ToolPanel";
-export { inspectCell, activateShield } from "./model/useTool";
+export { activateShield, hasTool } from "./model/useTool";
 export { toolCatalog } from "./model/catalog";
+export { canTarget } from "./lib/targets";

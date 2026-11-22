@@ -1,6 +1,7 @@
 import { Map, ArrowUpRight } from "lucide-react";
 import type { Difficulty, Expedition } from "../../../shared/types";
 import { regions } from "../model/regions";
+
 export function RegionPanel({
   expedition: e,
   onNew,
@@ -32,7 +33,7 @@ export function RegionPanel({
               <small>{r.code}</small>
               <strong>{r.name}</strong>
               <em>
-                {r.width} × {r.height} · {r.mines} 处危险
+                {r.width} × {r.height} · {r.mines} 陷阱 · {r.guardCount} 守卫
               </em>
             </span>
             <ArrowUpRight size={13} />
@@ -40,18 +41,13 @@ export function RegionPanel({
         ))}
       </div>
       <div className="field-note">
-        <span>FIELD NOTE / 001</span>
+        <span>FIELD NOTE / 002</span>
         <p>
-          每一个数字，
+          守卫的路线是公开的，
           <br />
-          都是遗迹的低语。
+          暗处的初始相位不是。
         </p>
-        <small>先观察，再踏出下一步。</small>
-        <div className="compass-art">
-          <i />
-          <b>N</b>
-          <span>✦</span>
-        </div>
+        <small>联合所有数字与脚步，再决定下一步。</small>
       </div>
     </section>
   );

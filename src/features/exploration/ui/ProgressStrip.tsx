@@ -1,5 +1,6 @@
-import { Footprints, Flag, Gem } from "lucide-react";
+import { Flag, Gem, Footprints, ShieldCheck } from "lucide-react";
 import type { Expedition } from "../../../shared/types";
+
 export function ProgressStrip({ expedition: e }: { expedition: Expedition }) {
   const safe = e.board.cells.filter((c) => c.revealed && !c.mine).length;
   const total = e.board.cells.length - e.board.mines;
@@ -23,7 +24,7 @@ export function ProgressStrip({ expedition: e }: { expedition: Expedition }) {
       <div>
         <Flag size={17} />
         <span>
-          危险标记
+          旗标判断
           <strong>
             {String(flags).padStart(2, "0")}
             <small> / {e.board.mines}</small>
@@ -37,6 +38,16 @@ export function ProgressStrip({ expedition: e }: { expedition: Expedition }) {
           <strong>
             {String(relics).padStart(2, "0")}
             <small> / 6</small>
+          </strong>
+        </span>
+      </div>
+      <div>
+        <ShieldCheck size={17} />
+        <span>
+          生命
+          <strong>
+            {e.lives}
+            {e.shield && <small> · 符石</small>}
           </strong>
         </span>
       </div>
